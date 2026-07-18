@@ -1,0 +1,19 @@
+# privyscope NER sidecar dependencies.
+# The HTTP server itself uses only the Python standard library; these are what
+# privyscope needs to load and run the ONNX NER model.
+
+privyscope
+
+# At least one language pack must be installed (registers a plugin via the
+# `privyscope.languages` entry-point group). Add the ones you need:
+privyscope-ko
+# privyscope-en
+# privyscope-zh
+# privyscope-ja
+
+# Runtime for the ONNX model + tokenizer + weight download.
+onnxruntime
+transformers
+tokenizers
+huggingface_hub
+numpy
