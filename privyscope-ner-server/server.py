@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """privyscope NER sidecar — a small HTTP service that runs privyscope's two-stage
-(regex + ONNX NER) pipeline so non-Python tools (e.g. aws-s3-grep) can get PII
+(regex + ONNX NER) pipeline so non-Python tools (e.g. grep-aws-s3) can get PII
 spans over HTTP.
 
 Why a sidecar: privyscope's ``redact()`` truncates NER input to the model's

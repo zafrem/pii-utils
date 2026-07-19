@@ -2,7 +2,7 @@
 
 A small HTTP service that runs [privyscope](https://github.com/zafrem/privyscope)'s
 two-stage (regex + ONNX NER) pipeline, so tools written in other languages —
-notably [`aws-s3-grep`](../aws-s3-grep) — can obtain PII entity spans over HTTP.
+notably [`grep-aws-s3`](../grep-aws-s3) — can obtain PII entity spans over HTTP.
 
 The model (`klue/roberta-base` for Korean) caps NER input at **256 tokens** and
 privyscope's `redact()` truncates rather than chunks. This server does
@@ -50,7 +50,7 @@ POST /analyze
 ```
 
 `start`/`end` are **character** offsets into the corresponding input text
-(`end` exclusive). `aws-s3-grep`'s client converts these to byte offsets to line
+(`end` exclusive). `grep-aws-s3`'s client converts these to byte offsets to line
 up with its regex findings.
 
 ## Notes
