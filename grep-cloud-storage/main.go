@@ -40,6 +40,7 @@ type options struct {
 	burst        int
 	concurrency  int
 	scanBinary   bool
+	extractDocs  bool
 	requireSame  bool
 	assumeYes    bool
 	estimateOnly bool
@@ -77,6 +78,7 @@ func run() error {
 	fs.IntVar(&o.burst, "burst", 5, "rate limiter burst size")
 	fs.IntVar(&o.concurrency, "concurrency", 8, "number of concurrent object downloads")
 	fs.BoolVar(&o.scanBinary, "scan-binary", false, "also scan objects that look binary")
+	fs.BoolVar(&o.extractDocs, "extract-docs", true, "extract and scan text from PDF and office (.docx/.xlsx/.pptx) documents")
 	fs.BoolVar(&o.requireSame, "require-same-account", false, "abort if the bucket is not owned by the calling account")
 	fs.BoolVar(&o.assumeYes, "yes", false, "proceed past the cost warning without prompting")
 	fs.BoolVar(&o.estimateOnly, "estimate-only", false, "list and estimate cost, then exit without downloading")
@@ -179,6 +181,7 @@ func run() error {
 		ScanBytesCap:   o.scanCapKB * 1024,
 		Concurrency:    o.concurrency,
 		SkipBinary:     !o.scanBinary,
+		ExtractDocs:    o.extractDocs,
 		NER:            nerAnalyzer,
 		NERMaxBytes:    o.nerMaxKB * 1024,
 	})
@@ -272,6 +275,7 @@ func run() error {
 			BytesScanned: res.BytesRead,
 			Skipped:      res.Skipped,
 			SkipReason:   res.SkipReason,
+			Extracted:    res.Extracted,
 			Findings:     res.Findings,
 			ScannedAt:    time.Now(),
 		}

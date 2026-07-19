@@ -1,6 +1,6 @@
 module github.com/zafrem/pii-utils/dark-data-storage
 
-go 1.23
+go 1.24.1
 
 // The pii-pattern-engine Go verification package declares its module as
 // "pii_verification" and is not published under a resolvable import path,
@@ -13,6 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.58.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
 	github.com/aws/smithy-go v1.20.3
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	golang.org/x/time v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
 	pii_verification v0.0.0-00010101000000-000000000000

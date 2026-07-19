@@ -47,6 +47,7 @@ type options struct {
 	burst        int
 	concurrency  int
 	scanBinary   bool
+	extractDocs  bool
 	assumeYes    bool
 	jsonOut      string
 	out          string
@@ -86,6 +87,7 @@ func run() error {
 	fs.IntVar(&o.burst, "burst", 5, "rate limiter burst size")
 	fs.IntVar(&o.concurrency, "concurrency", 8, "number of concurrent object downloads")
 	fs.BoolVar(&o.scanBinary, "scan-binary", false, "also scan objects that look binary")
+	fs.BoolVar(&o.extractDocs, "extract-docs", true, "extract and scan text from PDF and office (.docx/.xlsx/.pptx) documents")
 	fs.BoolVar(&o.assumeYes, "yes", false, "proceed past the cost warning without prompting")
 	fs.StringVar(&o.jsonOut, "json", "", "also write a copy of the summary to this file")
 	fs.StringVar(&o.out, "out", "", "session directory for the resumable ledger (default: auto-derived)")
@@ -294,6 +296,7 @@ func run() error {
 				BytesScanned: res.BytesRead,
 				Skipped:      res.Skipped,
 				SkipReason:   res.SkipReason,
+				Extracted:    res.Extracted,
 				Findings:     res.Findings,
 				ScannedAt:    time.Now(),
 			}
@@ -365,6 +368,7 @@ func newScanner(clients *awsx.Clients, a discovery.Assessment, o options, nerAna
 		MaxObjects:     o.sample,
 		Concurrency:    o.concurrency,
 		SkipBinary:     !o.scanBinary,
+		ExtractDocs:    o.extractDocs,
 		NER:            nerAnalyzer,
 		NERMaxBytes:    o.nerMaxKB * 1024,
 	})

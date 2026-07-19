@@ -24,6 +24,7 @@ type Record struct {
 	BytesScanned int64            `json:"bytes_scanned"`
 	Skipped      bool             `json:"skipped,omitempty"`
 	SkipReason   string           `json:"skip_reason,omitempty"`
+	Extracted    string           `json:"extracted,omitempty"`
 	Error        string           `json:"error,omitempty"`
 	Findings     []engine.Finding `json:"findings"`
 	ScannedAt    time.Time        `json:"scanned_at"`

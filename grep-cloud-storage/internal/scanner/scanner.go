@@ -5,6 +5,7 @@
 package scanner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/cost"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/engine"
+	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/extract"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/provider"
 )
 
@@ -36,6 +38,7 @@ type Config struct {
 	ScanBytesCap   int64 // read at most this many bytes per object (0 = whole object)
 	Concurrency    int
 	SkipBinary     bool
+	ExtractDocs    bool // extract text from PDF/office documents instead of skipping them as binary
 
 	// NER, when set, is invoked per object and its findings are merged with the
 	// regex findings (regex wins on overlap). NERMaxBytes caps the text sent.
@@ -50,8 +53,9 @@ type Result struct {
 	BytesRead  int64
 	Skipped    bool
 	SkipReason string
-	Err        error // object-level failure (LIST/GET/read)
-	NERErr     error // NER call failed; regex findings are still valid
+	Extracted  string // non-empty when the object was decoded from a document ("pdf"/"docx"/"xlsx"/"pptx")
+	Err        error  // object-level failure (LIST/GET/read)
+	NERErr     error  // NER call failed; regex findings are still valid
 	Findings   []engine.Finding
 }
 
@@ -144,9 +148,18 @@ func (s *Scanner) scanOne(ctx context.Context, obj Object, eng *engine.Engine) R
 	}
 	defer body.Close()
 
-	var reader io.Reader = body
-	if s.cfg.ScanBytesCap > 0 {
-		reader = io.LimitReader(body, s.cfg.ScanBytesCap)
+	// Peek the leading bytes so a document container can be buffered whole for
+	// extraction: a byte cap that truncated a PDF/ZIP would leave it unparseable.
+	br := bufio.NewReader(body)
+	magic, _ := br.Peek(8)
+	isDoc := s.cfg.ExtractDocs && extract.IsDoc(magic)
+
+	var reader io.Reader = br
+	switch {
+	case isDoc && s.cfg.MaxObjectBytes > 0:
+		reader = io.LimitReader(br, s.cfg.MaxObjectBytes) // bound memory; cap does not apply to docs
+	case !isDoc && s.cfg.ScanBytesCap > 0:
+		reader = io.LimitReader(br, s.cfg.ScanBytesCap)
 	}
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -155,7 +168,16 @@ func (s *Scanner) scanOne(ctx context.Context, obj Object, eng *engine.Engine) R
 	}
 	res.BytesRead = int64(len(data))
 
-	if s.cfg.SkipBinary && looksBinary(data) {
+	// Turn a recognized document into its plain text; on failure (encrypted,
+	// scanned image, corrupt) fall through to normal binary handling.
+	if isDoc {
+		if text, kind, ok := extract.Text(data); ok {
+			res.Extracted = kind
+			data = []byte(text)
+		}
+	}
+
+	if res.Extracted == "" && s.cfg.SkipBinary && looksBinary(data) {
 		res.Skipped = true
 		res.SkipReason = "binary content"
 		return res

@@ -141,6 +141,7 @@ under a resolvable import path.
 | `--concurrency` | `8` | concurrent object downloads |
 | `--max-object-mb` | `100` | skip objects larger than this |
 | `--scan-cap-kb` | `0` | read at most N KB per object (0 = whole object) |
+| `--extract-docs` | on | extract & scan text from PDF and office (`.docx`/`.xlsx`/`.pptx`) documents |
 | `--ner` | off | enable the privyscope NER stage (needs the sidecar) |
 | `--ner-endpoint` | `http://127.0.0.1:8080` | sidecar base URL |
 | `--ner-max-kb` | `256` | cap text (KB) sent to NER per object |
@@ -152,6 +153,10 @@ under a resolvable import path.
 ## Notes
 
 - Raw matched values are **never** emitted; findings carry a mask only.
+- **PDF and office documents** (`.docx`/`.xlsx`/`.pptx`) are decoded to their
+  text and scanned by default (`--extract-docs`); extraction is local,
+  read-only, and best-effort (encrypted/scanned/corrupt files fall back to
+  binary handling). Legacy `.doc`/`.xls`/`.ppt` are not extracted.
 - Only the caller's own account is enumerated — `ListBuckets` cannot see other
   accounts' buckets. "Dark data" here means shadow storage *within* your account.
 - The cost estimate is approximate (standard-tier list prices) and intended as

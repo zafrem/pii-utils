@@ -155,6 +155,8 @@ role) and a region (`--region` or `AWS_REGION`). Needs `s3:ListBucket`,
 | `--concurrency` | `8` | concurrent object downloads |
 | `--max-object-mb` | `100` | skip objects larger than this |
 | `--scan-cap-kb` | `0` | read at most N KB per object (0 = whole object) |
+| `--extract-docs` | on | extract & scan text from PDF and office (`.docx`/`.xlsx`/`.pptx`) documents |
+| `--scan-binary` | off | also scan objects that look binary (after extraction) |
 | `--require-same-account` | off | abort if bucket is not same-account |
 | `--ner` | off | enable the privyscope NER stage (needs the sidecar) |
 | `--ner-endpoint` | `http://127.0.0.1:8080` | sidecar base URL |
@@ -167,7 +169,13 @@ role) and a region (`--region` or `AWS_REGION`). Needs `s3:ListBucket`,
 ## Notes
 
 - Raw matched values are **never** emitted; findings carry a mask only.
-- Object contents are matched grep-style; binary-looking objects are skipped
-  unless `--scan-binary` is set.
+- Object contents are matched grep-style. **PDF and office documents**
+  (`.docx`/`.xlsx`/`.pptx`) are decoded to their text and scanned by default
+  (`--extract-docs`, on); the extracted `kind` is recorded per object in the
+  ledger. Extraction is local, read-only, and best-effort — an encrypted,
+  scanned-image, or corrupt document yields no text and falls back to normal
+  binary handling. Legacy binary office formats (`.doc`/`.xls`/`.ppt`) are not
+  extracted.
+- Other binary-looking objects are skipped unless `--scan-binary` is set.
 - The cost estimate is approximate (standard-tier us-east-1 list prices) and
   intended as an upper-bound guardrail, not a billing figure.
