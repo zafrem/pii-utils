@@ -141,6 +141,30 @@ func AssessAll(facts []BucketFacts) []Assessment {
 	return out
 }
 
+// Selection controls which assessed buckets are chosen for scanning.
+type Selection struct {
+	All     bool   // scan every bucket, not just the flagged (ungoverned) ones
+	MinTier string // only include buckets at/above this tier (empty = no floor)
+}
+
+// Select picks which assessed buckets to scan: flagged ones by default,
+// everything when All is set, filtered by a MinTier floor when given. Input
+// order is preserved.
+func Select(assessments []Assessment, sel Selection) []Assessment {
+	min := TierAtLeast(sel.MinTier)
+	var out []Assessment
+	for _, a := range assessments {
+		if !sel.All && !a.Flagged {
+			continue
+		}
+		if sel.MinTier != "" && a.Tier < min {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // TierAtLeast parses a minimum-tier filter string ("low"/"medium"/"high"/
 // "critical"). Unknown values fall back to TierLow.
 func TierAtLeast(s string) Tier {

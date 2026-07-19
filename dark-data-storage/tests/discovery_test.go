@@ -131,6 +131,59 @@ func TestTierAtLeast(t *testing.T) {
 	}
 }
 
+func TestSelect(t *testing.T) {
+	assessments := discovery.AssessAll([]discovery.BucketFacts{
+		{Name: "public", Public: true, PublicVia: "policy"},                                   // critical, flagged
+		{Name: "untagged", TagKnown: true, Encrypted: true, EncryptKnown: true},               // low, flagged
+		{Name: "governed", Encrypted: true, EncryptKnown: true, Tagged: true, TagKnown: true}, // low, not flagged
+		{Name: "unenc-untagged", EncryptKnown: true, TagKnown: true},                          // high, flagged
+	})
+
+	names := func(sel discovery.Selection) []string {
+		var out []string
+		for _, a := range discovery.Select(assessments, sel) {
+			out = append(out, a.Name)
+		}
+		return out
+	}
+
+	// Default: flagged only (governed excluded).
+	if got := names(discovery.Selection{}); !equalSet(got, []string{"public", "untagged", "unenc-untagged"}) {
+		t.Errorf("default selection = %v, want the three flagged buckets", got)
+	}
+	// All buckets includes the governed one.
+	if got := names(discovery.Selection{All: true}); len(got) != 4 {
+		t.Errorf("all-buckets selection = %v, want 4", got)
+	}
+	// MinTier high: only public (critical) and unenc-untagged (high).
+	if got := names(discovery.Selection{MinTier: "high"}); !equalSet(got, []string{"public", "unenc-untagged"}) {
+		t.Errorf("min-tier high selection = %v, want public + unenc-untagged", got)
+	}
+	// All buckets but min-tier critical: only public.
+	if got := names(discovery.Selection{All: true, MinTier: "critical"}); !equalSet(got, []string{"public"}) {
+		t.Errorf("all + min-tier critical = %v, want just public", got)
+	}
+}
+
+func equalSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, x := range a {
+		seen[x]++
+	}
+	for _, x := range b {
+		seen[x]--
+	}
+	for _, n := range seen {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func TestWriteJSONRoundTrips(t *testing.T) {
 	assessments := discovery.AssessAll([]discovery.BucketFacts{
 		{Name: "public", Public: true, PublicVia: "policy"},

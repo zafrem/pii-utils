@@ -21,6 +21,7 @@ import (
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/cost"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/engine"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/ner"
+	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/provider"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/report"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/scanner"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/session"
@@ -169,14 +170,13 @@ func run() error {
 		return errors.New("aborting: --require-same-account set and bucket is not confirmed same-account")
 	}
 
-	// 4. Inventory (LIST) pass.
-	sc := scanner.New(clients.S3, scanner.Config{
+	// 4. Inventory (LIST) pass. The provider owns rate limiting.
+	store := provider.NewS3Store(clients.S3, o.rps, o.burst)
+	sc := scanner.New(store, scanner.Config{
 		Bucket:         o.bucket,
 		Prefix:         o.prefix,
 		MaxObjectBytes: o.maxObjectMB * 1024 * 1024,
 		ScanBytesCap:   o.scanCapKB * 1024,
-		RequestsPerSec: o.rps,
-		Burst:          o.burst,
 		Concurrency:    o.concurrency,
 		SkipBinary:     !o.scanBinary,
 		NER:            nerAnalyzer,

@@ -1,6 +1,7 @@
-// Package scanner lists and streams S3 objects under a prefix, running the PII
-// engine over each one. All S3 API calls pass through a shared token-bucket
-// rate limiter so a large scan does not trip S3 request throttling.
+// Package scanner lists and streams objects under a prefix through a
+// provider.Store, running the PII engine over each one. It is provider-neutral:
+// the Store owns API calls and rate limiting, the scanner owns concurrency,
+// per-object limits, and the regex/NER pipeline.
 package scanner
 
 import (
@@ -11,12 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"golang.org/x/time/rate"
-
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/cost"
 	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/engine"
+	"github.com/zafrem/pii-utils/grep-cloud-storage/internal/provider"
 )
 
 // Analyzer runs a secondary detector (e.g. the privyscope NER sidecar) over an
@@ -25,14 +23,17 @@ type Analyzer interface {
 	Analyze(ctx context.Context, text string) ([]engine.Finding, error)
 }
 
-// Config controls listing, throttling, and per-object limits.
+// Object is a single object discovered during the inventory pass.
+type Object = provider.Object
+
+// Config controls listing scope and per-object limits. Rate limiting lives in
+// the provider.Store, not here.
 type Config struct {
 	Bucket         string
 	Prefix         string
-	MaxObjectBytes int64   // objects larger than this are skipped (0 = no limit)
-	ScanBytesCap   int64   // read at most this many bytes per object (0 = whole object)
-	RequestsPerSec float64 // shared S3 API rate (0 = unlimited)
-	Burst          int
+	MaxObjectBytes int64 // objects larger than this are skipped (0 = no limit)
+	MaxObjects     int64 // stop the LIST after this many objects (0 = no cap; per-bucket sampling)
+	ScanBytesCap   int64 // read at most this many bytes per object (0 = whole object)
 	Concurrency    int
 	SkipBinary     bool
 
@@ -40,12 +41,6 @@ type Config struct {
 	// regex findings (regex wins on overlap). NERMaxBytes caps the text sent.
 	NER         Analyzer
 	NERMaxBytes int64
-}
-
-// Object is a single S3 object discovered during the inventory pass.
-type Object struct {
-	Key  string
-	Size int64
 }
 
 // Result is the outcome of scanning one object.
@@ -60,64 +55,43 @@ type Result struct {
 	Findings   []engine.Finding
 }
 
-// Scanner holds the S3 client and shared limiter.
+// Scanner runs the object-storage read + PII pipeline over a Store.
 type Scanner struct {
-	s3      *s3.Client
-	cfg     Config
-	limiter *rate.Limiter
+	store provider.Store
+	cfg   Config
 }
 
-// New builds a Scanner. A RequestsPerSec of 0 disables client-side limiting
-// (the SDK's adaptive retry still applies).
-func New(s3c *s3.Client, cfg Config) *Scanner {
+// New builds a Scanner over the given Store.
+func New(store provider.Store, cfg Config) *Scanner {
 	if cfg.Concurrency < 1 {
 		cfg.Concurrency = 4
 	}
-	var lim *rate.Limiter
-	if cfg.RequestsPerSec > 0 {
-		burst := cfg.Burst
-		if burst < 1 {
-			burst = 1
-		}
-		lim = rate.NewLimiter(rate.Limit(cfg.RequestsPerSec), burst)
-	}
-	return &Scanner{s3: s3c, cfg: cfg, limiter: lim}
-}
-
-func (s *Scanner) wait(ctx context.Context) error {
-	if s.limiter == nil {
-		return nil
-	}
-	return s.limiter.Wait(ctx)
+	return &Scanner{store: store, cfg: cfg}
 }
 
 // Inventory performs the LIST pass, returning the objects that will be scanned
 // (after the size filter) and a cost tally. Objects above MaxObjectBytes are
-// excluded from the returned list and counted separately as skipped.
+// excluded from the returned list and counted separately as skipped. Listing
+// stops early once MaxObjects have been collected.
 func (s *Scanner) Inventory(ctx context.Context) (objects []Object, inv cost.Inventory, skippedLarge int64, err error) {
-	p := s3.NewListObjectsV2Paginator(s.s3, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.cfg.Bucket),
-		Prefix: aws.String(s.cfg.Prefix),
-	})
-	for p.HasMorePages() {
-		if err = s.wait(ctx); err != nil {
-			return nil, inv, 0, err
-		}
-		page, perr := p.NextPage(ctx)
-		if perr != nil {
-			return nil, inv, 0, fmt.Errorf("s3:ListObjectsV2 on %s/%s: %w", s.cfg.Bucket, s.cfg.Prefix, perr)
-		}
+	err = s.store.List(ctx, s.cfg.Bucket, s.cfg.Prefix, func(page []Object) error {
 		inv.ListRequests++
-		for _, o := range page.Contents {
-			size := aws.ToInt64(o.Size)
-			if s.cfg.MaxObjectBytes > 0 && size > s.cfg.MaxObjectBytes {
+		for _, o := range page {
+			if s.cfg.MaxObjectBytes > 0 && o.Size > s.cfg.MaxObjectBytes {
 				skippedLarge++
 				continue
 			}
-			objects = append(objects, Object{Key: aws.ToString(o.Key), Size: size})
+			objects = append(objects, o)
 			inv.Objects++
-			inv.Bytes += size
+			inv.Bytes += o.Size
+			if s.cfg.MaxObjects > 0 && inv.Objects >= s.cfg.MaxObjects {
+				return provider.ErrStop
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, cost.Inventory{}, 0, err
 	}
 	return objects, inv, skippedLarge, nil
 }
@@ -163,23 +137,16 @@ feed:
 func (s *Scanner) scanOne(ctx context.Context, obj Object, eng *engine.Engine) Result {
 	res := Result{Key: obj.Key, Size: obj.Size}
 
-	if err := s.wait(ctx); err != nil {
+	body, err := s.store.Open(ctx, s.cfg.Bucket, obj.Key)
+	if err != nil {
 		res.Err = err
 		return res
 	}
-	out, err := s.s3.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.cfg.Bucket),
-		Key:    aws.String(obj.Key),
-	})
-	if err != nil {
-		res.Err = fmt.Errorf("s3:GetObject %s: %w", obj.Key, err)
-		return res
-	}
-	defer out.Body.Close()
+	defer body.Close()
 
-	var reader io.Reader = out.Body
+	var reader io.Reader = body
 	if s.cfg.ScanBytesCap > 0 {
-		reader = io.LimitReader(out.Body, s.cfg.ScanBytesCap)
+		reader = io.LimitReader(body, s.cfg.ScanBytesCap)
 	}
 	data, err := io.ReadAll(reader)
 	if err != nil {

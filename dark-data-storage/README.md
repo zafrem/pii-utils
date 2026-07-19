@@ -111,10 +111,11 @@ the **remaining** objects across all selected buckets.
 pii-pattern-engine/            # git submodule (shared by all tools in this repo)
 dark-data-storage/
   main.go                      # CLI + orchestration (discover → assess → scan)
-  internal/discovery/          # provider-neutral risk scoring (pure, unit-tested)
+  internal/discovery/          # provider-neutral risk scoring + selection (pure, unit-tested)
   internal/awsx/               # clients, caller identity, per-bucket audit
   internal/cost/               # cost estimate + thresholds
-  internal/scanner/            # rate-limited LIST + concurrent GET/scan (sampling)
+  internal/provider/           # object-storage abstraction: S3Store (+ rate limit) and an in-memory fake
+  internal/scanner/            # concurrent GET/scan pipeline (sampling) over a provider.Store
   internal/engine/             # YAML loader, matcher, scoring, verification gate
   internal/ner/                # privyscope NER sidecar client
   internal/report/             # summary + JSON report

@@ -103,7 +103,8 @@ grep-cloud-storage/
   internal/engine/             # YAML loader, matcher, scoring, verification gate
   internal/awsx/               # clients, caller identity, same-account check
   internal/cost/               # cost estimate + thresholds
-  internal/scanner/            # rate-limited LIST + concurrent GET/scan
+  internal/provider/           # object-storage abstraction: S3Store (+ rate limit) and an in-memory fake
+  internal/scanner/            # concurrent GET/scan pipeline (regex + NER merge) over a provider.Store
   internal/ner/                # privyscope NER sidecar client
   internal/report/             # human summary + JSON report
   internal/session/            # append-only ledger + resume

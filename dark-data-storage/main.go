@@ -24,6 +24,7 @@ import (
 	"github.com/zafrem/pii-utils/dark-data-storage/internal/discovery"
 	"github.com/zafrem/pii-utils/dark-data-storage/internal/engine"
 	"github.com/zafrem/pii-utils/dark-data-storage/internal/ner"
+	"github.com/zafrem/pii-utils/dark-data-storage/internal/provider"
 	"github.com/zafrem/pii-utils/dark-data-storage/internal/report"
 	"github.com/zafrem/pii-utils/dark-data-storage/internal/scanner"
 	"github.com/zafrem/pii-utils/dark-data-storage/internal/session"
@@ -203,7 +204,7 @@ func run() error {
 	}
 
 	// 6. Select which buckets to scan.
-	selected := selectBuckets(assessments, o)
+	selected := discovery.Select(assessments, discovery.Selection{All: o.allBuckets, MinTier: o.minTier})
 	if len(selected) == 0 {
 		fmt.Println("No buckets selected for scanning (all governed, or none met --min-tier).")
 		fmt.Println("Re-run with --all-buckets to scan everything.")
@@ -353,37 +354,20 @@ func run() error {
 	return nil
 }
 
-// newScanner builds a scanner bound to a bucket's own region.
+// newScanner builds a scanner bound to a bucket's own region. The provider
+// (region-pinned S3 client) owns rate limiting.
 func newScanner(clients *awsx.Clients, a discovery.Assessment, o options, nerAnalyzer scanner.Analyzer) *scanner.Scanner {
-	return scanner.New(clients.S3ForRegion(a.Region), scanner.Config{
+	store := provider.NewS3Store(clients.S3ForRegion(a.Region), o.rps, o.burst)
+	return scanner.New(store, scanner.Config{
 		Bucket:         a.Name,
 		MaxObjectBytes: o.maxObjectMB * 1024 * 1024,
 		ScanBytesCap:   o.scanCapKB * 1024,
 		MaxObjects:     o.sample,
-		RequestsPerSec: o.rps,
-		Burst:          o.burst,
 		Concurrency:    o.concurrency,
 		SkipBinary:     !o.scanBinary,
 		NER:            nerAnalyzer,
 		NERMaxBytes:    o.nerMaxKB * 1024,
 	})
-}
-
-// selectBuckets picks which assessed buckets to scan: flagged ones by default,
-// everything with --all-buckets, filtered by --min-tier when set.
-func selectBuckets(assessments []discovery.Assessment, o options) []discovery.Assessment {
-	min := discovery.TierAtLeast(o.minTier)
-	var out []discovery.Assessment
-	for _, a := range assessments {
-		if !o.allBuckets && !a.Flagged {
-			continue
-		}
-		if o.minTier != "" && a.Tier < min {
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
 }
 
 func filterFacts(facts []discovery.BucketFacts, sub string) []discovery.BucketFacts {
